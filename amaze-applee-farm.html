@@ -1,0 +1,463 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-fullscreen">
+<meta name="apple-mobile-web-app-title" content="Applee Farm">
+<meta name="theme-color" content="#071a0f">
+<title>Amaze 편백미로 | Applee Farm</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;}
+  html,body{width:100%;height:100%;overflow:hidden;background:#071a0f;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;}
+  #app{width:100%;height:100%;display:flex;flex-direction:column;align-items:center;background:#071a0f;}
+  #topbar{width:100%;background:#043010;display:flex;align-items:center;justify-content:space-between;padding:env(safe-area-inset-top,12px) 16px 10px;border-bottom:1px solid #1a5c36;flex-shrink:0;}
+  .logo{font-size:15px;font-weight:600;color:#86efac;letter-spacing:0.3px;}
+  .sub{font-size:10px;color:#4ade80;margin-top:1px;}
+  .stats{display:flex;gap:20px;}
+  .st{text-align:center;}
+  .sv{font-size:17px;font-weight:600;color:#fff;}
+  .sl{font-size:10px;color:#86efac;}
+  #canvas-wrap{position:relative;flex:1;width:100%;display:flex;align-items:center;justify-content:center;overflow:hidden;}
+  #c3d{display:block;touch-action:none;}
+  #overlay{position:absolute;inset:0;background:rgba(4,18,8,0.94);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;z-index:20;}
+  #overlay h1{font-size:24px;font-weight:700;color:#86efac;text-align:center;}
+  #overlay p{font-size:13px;color:#bbf7d0;text-align:center;line-height:1.7;padding:0 24px;}
+  .start-btn{background:#b45309;color:#fff;border:none;border-radius:12px;padding:14px 40px;font-size:16px;font-weight:600;cursor:pointer;margin-top:6px;-webkit-appearance:none;}
+  #bottombar{width:100%;background:#043010;border-top:1px solid #1a5c36;padding:8px 16px;padding-bottom:max(8px,env(safe-area-inset-bottom));display:flex;align-items:center;justify-content:space-between;flex-shrink:0;}
+  #dpad{display:grid;grid-template-columns:52px 52px 52px;grid-template-rows:52px 52px 52px;gap:4px;}
+  .db{background:#0d3520;border:1.5px solid #1a5c36;border-radius:12px;color:#86efac;font-size:24px;display:flex;align-items:center;justify-content:center;cursor:pointer;user-select:none;-webkit-user-select:none;touch-action:manipulation;transition:background 0.08s;}
+  .db:active{background:#1a5c36;}
+  .de{background:transparent;border:none;pointer-events:none;}
+  #side-btns{display:flex;flex-direction:column;gap:8px;align-items:flex-end;}
+  .side-btn{background:#0d3520;border:1px solid #1a5c36;color:#86efac;border-radius:8px;padding:8px 12px;font-size:11px;cursor:pointer;white-space:nowrap;-webkit-appearance:none;}
+  .side-btn:active{background:#1a5c36;}
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="topbar">
+    <div>
+      <div class="logo">Applee Farm</div>
+      <div class="sub">Amaze 편백미로 3D</div>
+    </div>
+    <div class="stats">
+      <div class="st"><div class="sv" id="ac">0/6</div><div class="sl">사과</div></div>
+      <div class="st"><div class="sv" id="tv">00:00</div><div class="sl">시간</div></div>
+    </div>
+  </div>
+
+  <div id="canvas-wrap">
+    <canvas id="c3d"></canvas>
+    <div id="overlay">
+      <h1>🌲 Amaze<br>편백미로 3D</h1>
+      <p>피톤치드 가득한 편백 숲 미로에서<br>Applee 사과 6개를 모두 모아<br>쉼터로 탈출하세요!</p>
+      <button class="start-btn" onclick="startGame()">게임 시작</button>
+    </div>
+  </div>
+
+  <div id="bottombar">
+    <div id="dpad">
+      <div class="de"></div>
+      <div class="db" id="bu">▲</div>
+      <div class="de"></div>
+      <div class="db" id="bl">◀</div>
+      <div class="de"></div>
+      <div class="db" id="br">▶</div>
+      <div class="de"></div>
+      <div class="db" id="bd">▼</div>
+      <div class="de"></div>
+    </div>
+    <div id="side-btns">
+      <button class="side-btn" onclick="startGame()">🔄 새 미로</button>
+      <button class="side-btn" id="sb" onclick="toggleSnd()">🔊 소리 켜기</button>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+// ── 상수 ──
+const COLS=11,ROWS=11,CS=2.4;
+
+// ── 상태 ──
+let maze=[],player={x:0,y:0},apples=[],goal={x:COLS-1,y:ROWS-1};
+let atotal=6,acol=0,secs=0,tint=null,running=false,tick=0;
+
+// ── Three.js ──
+let scene,camera,renderer,playerMesh,goalMesh;
+let appleMeshes=[],wallMeshes=[],floorMesh,fogParts=[],particles=[];
+let camAngle=0;
+let W,H;
+
+// ── 오디오 ──
+let soundOn=false,audioCtx=null,bgGain=null;
+
+// ── 캔버스 크기 ──
+function resize(){
+  const wrap=document.getElementById('canvas-wrap');
+  W=wrap.clientWidth; H=wrap.clientHeight;
+  if(renderer){renderer.setSize(W,H);camera.aspect=W/H;camera.updateProjectionMatrix();}
+  else{document.getElementById('c3d').width=W;document.getElementById('c3d').height=H;}
+}
+
+// ── Three.js 초기화 ──
+function initThree(){
+  resize();
+  scene=new THREE.Scene();
+  scene.background=new THREE.Color(0x071a0f);
+  scene.fog=new THREE.Fog(0x071a0f,10,30);
+
+  renderer=new THREE.WebGLRenderer({canvas:document.getElementById('c3d'),antialias:true});
+  renderer.setSize(W,H);
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio,2));
+  renderer.shadowMap.enabled=true;
+  renderer.shadowMap.type=THREE.PCFSoftShadowMap;
+
+  camera=new THREE.PerspectiveCamera(55,W/H,0.1,60);
+
+  const amb=new THREE.AmbientLight(0x1a4a2e,1.4); scene.add(amb);
+  const sun=new THREE.DirectionalLight(0x86efac,2.0); sun.position.set(8,14,8);
+  sun.castShadow=true; sun.shadow.mapSize.set(1024,1024);
+  sun.shadow.camera.left=-22; sun.shadow.camera.right=22;
+  sun.shadow.camera.top=22; sun.shadow.camera.bottom=-22;
+  scene.add(sun);
+
+  addStars(); addTrees();
+}
+
+function addStars(){
+  const geo=new THREE.BufferGeometry();
+  const v=[];
+  for(let i=0;i<250;i++) v.push((Math.random()-0.5)*70,8+Math.random()*14,(Math.random()-0.5)*70);
+  geo.setAttribute('position',new THREE.Float32BufferAttribute(v,3));
+  scene.add(new THREE.Points(geo,new THREE.PointsMaterial({color:0xbbf7d0,size:0.13,transparent:true,opacity:0.7})));
+}
+
+function addTrees(){
+  const tm=new THREE.MeshLambertMaterial({color:0x78350f});
+  const lm1=new THREE.MeshLambertMaterial({color:0x14532d});
+  const lm2=new THREE.MeshLambertMaterial({color:0x166534});
+  const pos=[[-3,-3],[-3,COLS*CS+3],[COLS*CS+3,-3],[COLS*CS+3,COLS*CS+3],[-4,COLS*CS/2],[COLS*CS+4,COLS*CS/2],[COLS*CS/2,-4],[COLS*CS/2,COLS*CS+4]];
+  for(const [tx,tz] of pos){
+    const h=2+Math.random()*1.5;
+    const trunk=new THREE.Mesh(new THREE.CylinderGeometry(0.15,0.2,h,6),tm);
+    trunk.position.set(tx,h/2,tz); trunk.castShadow=true; scene.add(trunk);
+    [[0.9,1.8,0.5],[0.7,1.5,1.5],[0.45,1.2,2.3]].forEach(([r,rh,yo],i)=>{
+      const c=new THREE.Mesh(new THREE.ConeGeometry(r,rh,7),i%2===0?lm1:lm2);
+      c.position.set(tx,h+yo,tz); c.castShadow=true; scene.add(c);
+    });
+  }
+}
+
+// ── 미로 생성 ──
+function initMaze(){
+  maze=[];
+  for(let r=0;r<ROWS;r++){maze.push([]);for(let c=0;c<COLS;c++) maze[r].push({n:true,s:true,e:true,w:true,visited:false});}
+}
+function carve(r,c){
+  maze[r][c].visited=true;
+  const dirs=[{dr:-1,dc:0,from:'s',to:'n'},{dr:1,dc:0,from:'n',to:'s'},{dr:0,dc:1,from:'w',to:'e'},{dr:0,dc:-1,from:'e',to:'w'}];
+  dirs.sort(()=>Math.random()-0.5);
+  for(const d of dirs){
+    const nr=r+d.dr,nc=c+d.dc;
+    if(nr>=0&&nr<ROWS&&nc>=0&&nc<COLS&&!maze[nr][nc].visited){
+      maze[r][c][d.to]=false; maze[nr][nc][d.from]=false; carve(nr,nc);
+    }
+  }
+}
+
+// ── 미로 지오메트리 ──
+function buildMaze(){
+  wallMeshes.forEach(m=>scene.remove(m)); wallMeshes=[];
+  if(floorMesh) scene.remove(floorMesh);
+  const fw=COLS*CS,fd=ROWS*CS;
+  floorMesh=new THREE.Mesh(new THREE.PlaneGeometry(fw+2,fd+2),new THREE.MeshLambertMaterial({color:0x0a2e1a}));
+  floorMesh.rotation.x=-Math.PI/2; floorMesh.position.set(fw/2-CS/2,0,fd/2-CS/2);
+  floorMesh.receiveShadow=true; scene.add(floorMesh);
+  const wm1=new THREE.MeshLambertMaterial({color:0x14532d});
+  const wm2=new THREE.MeshLambertMaterial({color:0x166534});
+  const wh=1.4,th=0.18;
+  for(let r=0;r<ROWS;r++){
+    for(let c=0;c<COLS;c++){
+      const cell=maze[r][c],wx=c*CS,wz=r*CS,mat=(r+c)%2===0?wm1:wm2;
+      if(cell.n){const m=new THREE.Mesh(new THREE.BoxGeometry(CS+th,wh,th),mat);m.position.set(wx,wh/2,wz-th/2);m.castShadow=true;m.receiveShadow=true;scene.add(m);wallMeshes.push(m);}
+      if(cell.w){const m=new THREE.Mesh(new THREE.BoxGeometry(th,wh,CS+th),mat);m.position.set(wx-th/2,wh/2,wz);m.castShadow=true;m.receiveShadow=true;scene.add(m);wallMeshes.push(m);}
+      if(r===ROWS-1&&cell.s){const m=new THREE.Mesh(new THREE.BoxGeometry(CS+th,wh,th),mat);m.position.set(wx,wh/2,wz+CS-th/2);m.castShadow=true;m.receiveShadow=true;scene.add(m);wallMeshes.push(m);}
+      if(c===COLS-1&&cell.e){const m=new THREE.Mesh(new THREE.BoxGeometry(th,wh,CS+th),mat);m.position.set(wx+CS-th/2,wh/2,wz);m.castShadow=true;m.receiveShadow=true;scene.add(m);wallMeshes.push(m);}
+    }
+  }
+}
+
+// ── 사과 ──
+function placeApples(){
+  apples=[]; const cands=[];
+  for(let r=1;r<ROWS;r++) for(let c=1;c<COLS;c++) if(!(r===ROWS-1&&c===COLS-1)&&!(r===0&&c===0)) cands.push({x:c,y:r});
+  cands.sort(()=>Math.random()-0.5);
+  for(let i=0;i<6;i++) apples.push({...cands[i],collected:false});
+  atotal=6; acol=0;
+}
+function buildApples(){
+  appleMeshes.forEach(m=>{if(m.userData.pl)scene.remove(m.userData.pl);scene.remove(m);});
+  appleMeshes=[];
+  const bm=new THREE.MeshLambertMaterial({color:0xdc2626});
+  const sm=new THREE.MeshLambertMaterial({color:0x78350f});
+  const lm=new THREE.MeshLambertMaterial({color:0x16a34a});
+  for(const a of apples){
+    const g=new THREE.Group();
+    const body=new THREE.Mesh(new THREE.SphereGeometry(0.28,12,10),bm); body.castShadow=true;
+    const stem=new THREE.Mesh(new THREE.CylinderGeometry(0.03,0.03,0.2,5),sm); stem.position.y=0.33;
+    const leaf=new THREE.Mesh(new THREE.SphereGeometry(0.1,6,5),lm); leaf.scale.set(1.5,0.4,0.8); leaf.position.set(0.1,0.42,0);
+    g.add(body); g.add(stem); g.add(leaf);
+    g.position.set(a.x*CS,0.5,a.y*CS);
+    g.userData={phase:Math.random()*Math.PI*2,apple:a};
+    const pl=new THREE.PointLight(0xef4444,0.5,1.8);
+    pl.position.set(a.x*CS,0.9,a.y*CS); scene.add(pl); g.userData.pl=pl;
+    scene.add(g); appleMeshes.push(g);
+  }
+}
+
+// ── 플레이어 ──
+function buildPlayer(){
+  if(playerMesh){if(playerMesh.userData.pl)scene.remove(playerMesh.userData.pl);scene.remove(playerMesh);}
+  const g=new THREE.Group();
+  const bm=new THREE.MeshLambertMaterial({color:0xfbbf24});
+  const hm=new THREE.MeshLambertMaterial({color:0xfde68a});
+  const em=new THREE.MeshLambertMaterial({color:0x1c1917});
+  const body=new THREE.Mesh(new THREE.CylinderGeometry(0.25,0.25,0.7,10),bm); body.position.y=0.35; body.castShadow=true;
+  const head=new THREE.Mesh(new THREE.SphereGeometry(0.22,10,8),hm); head.position.y=0.88;
+  const el=new THREE.Mesh(new THREE.SphereGeometry(0.05,6,6),em); el.position.set(-0.09,0.93,0.18);
+  const er=el.clone(); er.position.x=0.09;
+  g.add(body); g.add(head); g.add(el); g.add(er);
+  g.position.set(player.x*CS,0,player.y*CS);
+  const pl=new THREE.PointLight(0xfbbf24,0.9,3.5); pl.position.set(player.x*CS,1.5,player.y*CS);
+  scene.add(pl); g.userData={pl};
+  scene.add(g); playerMesh=g;
+}
+
+// ── 목표 ──
+function buildGoal(){
+  if(goalMesh) scene.remove(goalMesh);
+  const g=new THREE.Group();
+  const base=new THREE.Mesh(new THREE.BoxGeometry(CS*0.8,0.1,CS*0.8),new THREE.MeshLambertMaterial({color:0x065f46})); base.position.y=0.05;
+  const roof=new THREE.Mesh(new THREE.ConeGeometry(CS*0.55,0.8,4),new THREE.MeshLambertMaterial({color:0xb45309})); roof.rotation.y=Math.PI/4; roof.position.y=0.85;
+  const pm=new THREE.MeshLambertMaterial({color:0x78350f});
+  [[-.35,0,-.35],[.35,0,-.35],[-.35,0,.35],[.35,0,.35]].forEach(([x,,z])=>{
+    const p=new THREE.Mesh(new THREE.CylinderGeometry(0.07,0.07,0.7,6),pm); p.position.set(x,0.35,z); g.add(p);
+  });
+  g.add(base); g.add(roof);
+  g.position.set(goal.x*CS,0,goal.y*CS);
+  const pl=new THREE.PointLight(0x86efac,1.4,5); pl.position.set(goal.x*CS,2,goal.y*CS); scene.add(pl);
+  scene.add(g); goalMesh=g;
+}
+
+// ── 안개 파티클 ──
+function buildFog(){
+  fogParts.forEach(f=>scene.remove(f)); fogParts=[];
+  const mat=new THREE.MeshBasicMaterial({color:0xa7f3d0,transparent:true,opacity:0.05,depthWrite:false});
+  for(let i=0;i<20;i++){
+    const m=new THREE.Mesh(new THREE.SphereGeometry(0.8+Math.random()*0.8,6,6),mat.clone());
+    m.position.set(Math.random()*COLS*CS,0.4+Math.random()*0.4,Math.random()*ROWS*CS);
+    m.userData={sx:0.2+Math.random()*0.3,phase:Math.random()*Math.PI*2};
+    scene.add(m); fogParts.push(m);
+  }
+}
+
+// ── 게임 시작 ──
+function startGame(){
+  document.getElementById('overlay').style.display='none';
+  initMaze(); carve(0,0);
+  player={x:0,y:0}; acol=0; secs=0; running=true;
+  clearInterval(tint);
+  tint=setInterval(()=>{
+    if(!running) return; secs++;
+    document.getElementById('tv').textContent=String(Math.floor(secs/60)).padStart(2,'0')+':'+String(secs%60).padStart(2,'0');
+  },1000);
+  placeApples(); buildMaze(); buildApples(); buildPlayer(); buildGoal(); buildFog();
+  updateHUD(); camAngle=0;
+}
+
+function updateHUD(){document.getElementById('ac').textContent=acol+'/'+atotal;}
+
+// ── 이동 ──
+function mv(dx,dy){
+  if(!running) return;
+  const {x,y}=player,cell=maze[y][x];
+  if(dx===1&&cell.e) return; if(dx===-1&&cell.w) return;
+  if(dy===1&&cell.s) return; if(dy===-1&&cell.n) return;
+  const nx=x+dx,ny=y+dy;
+  if(nx<0||nx>=COLS||ny<0||ny>=ROWS) return;
+  player.x=nx; player.y=ny;
+  if(playerMesh){
+    playerMesh.position.set(nx*CS,0,ny*CS);
+    if(playerMesh.userData.pl) playerMesh.userData.pl.position.set(nx*CS,1.5,ny*CS);
+    playerMesh.lookAt(nx*CS+(dx===0?0.01:dx*2),0.5,ny*CS+(dy===0?0.01:dy*2));
+  }
+  spawnTrail(nx,ny); playStep(); checkApple(); updateHUD(); checkWin();
+}
+
+function spawnTrail(cx,cy){
+  const mat=new THREE.MeshBasicMaterial({color:0x4ade80,transparent:true,opacity:0.8,depthWrite:false});
+  for(let i=0;i<5;i++){
+    const m=new THREE.Mesh(new THREE.SphereGeometry(0.07,4,4),mat.clone());
+    m.position.set(cx*CS+(Math.random()-0.5)*0.5,0.15+Math.random()*0.4,cy*CS+(Math.random()-0.5)*0.5);
+    m.userData={life:1.0,vy:0.02+Math.random()*0.02};
+    scene.add(m); particles.push(m);
+  }
+}
+
+function checkApple(){
+  for(let i=0;i<apples.length;i++){
+    const a=apples[i];
+    if(!a.collected&&a.x===player.x&&a.y===player.y){
+      a.collected=true; acol++;
+      const m=appleMeshes[i];
+      if(m.userData.pl) scene.remove(m.userData.pl);
+      scene.remove(m); playApple();
+    }
+  }
+}
+
+function checkWin(){
+  if(player.x===goal.x&&player.y===goal.y&&acol===atotal){
+    running=false; clearInterval(tint); playWin();
+    setTimeout(()=>{
+      const ov=document.getElementById('overlay');
+      ov.innerHTML=`<h1>🎉 탈출 성공!</h1><p>Applee 사과를 모두 수집하고<br>편백 쉼터에 도착했습니다!<br><span style="color:#fcd34d;font-size:16px;font-weight:700;">⏱ ${String(Math.floor(secs/60)).padStart(2,'0')}:${String(secs%60).padStart(2,'0')}</span></p><button class="start-btn" onclick="startGame()">다시 하기</button>`;
+      ov.style.display='flex';
+    },400);
+  }
+}
+
+// ── 애니메이션 루프 ──
+function animate(){
+  requestAnimationFrame(animate); tick++;
+
+  appleMeshes.forEach(m=>{
+    if(!m.userData.apple.collected){
+      m.userData.phase+=0.04;
+      m.position.y=0.4+Math.sin(m.userData.phase)*0.12;
+      m.rotation.y+=0.02;
+    }
+  });
+  if(goalMesh){goalMesh.rotation.y+=0.01;}
+  fogParts.forEach(f=>{
+    f.userData.phase+=0.007;
+    f.position.x+=Math.sin(f.userData.phase)*f.userData.sx*0.02;
+    f.material.opacity=0.04+Math.abs(Math.sin(f.userData.phase))*0.025;
+  });
+  for(let i=particles.length-1;i>=0;i--){
+    const p=particles[i];
+    p.userData.life-=0.035; p.position.y+=p.userData.vy;
+    p.material.opacity=p.userData.life*0.7; p.scale.setScalar(p.userData.life);
+    if(p.userData.life<=0){scene.remove(p);particles.splice(i,1);}
+  }
+
+  // 카메라
+  if(playerMesh){
+    const tx=player.x*CS,tz=player.y*CS;
+    camAngle+=0.004;
+    camera.position.set(tx+Math.sin(camAngle)*7,6.5,tz+Math.cos(camAngle)*7);
+    camera.lookAt(tx,0.5,tz);
+  }
+  renderer.render(scene,camera);
+}
+
+// ── 오디오 ──
+function toggleSnd(){
+  soundOn=!soundOn;
+  document.getElementById('sb').textContent=soundOn?'🔇 소리 끄기':'🔊 소리 켜기';
+  if(soundOn){
+    if(!audioCtx) audioCtx=new(window.AudioContext||window.webkitAudioContext)();
+    if(audioCtx.state==='suspended') audioCtx.resume();
+    playBg();
+  } else {
+    if(bgGain) bgGain.gain.setTargetAtTime(0,audioCtx.currentTime,0.5);
+  }
+}
+function playBg(){
+  if(!audioCtx) return;
+  bgGain=audioCtx.createGain(); bgGain.gain.value=0; bgGain.connect(audioCtx.destination);
+  const buf=audioCtx.createBuffer(1,audioCtx.sampleRate*4,audioCtx.sampleRate);
+  const d=buf.getChannelData(0);
+  for(let i=0;i<d.length;i++) d[i]=(Math.random()*2-1)*0.3;
+  const src=audioCtx.createBufferSource(); src.buffer=buf; src.loop=true;
+  const f=audioCtx.createBiquadFilter(); f.type='bandpass'; f.frequency.value=350; f.Q.value=0.4;
+  src.connect(f); f.connect(bgGain); src.start();
+  for(let i=0;i<3;i++){
+    const o=audioCtx.createOscillator(),g=audioCtx.createGain();
+    const lfo=audioCtx.createOscillator(),lg=audioCtx.createGain();
+    o.type='sine'; o.frequency.value=3100+i*200; g.gain.value=0;
+    lfo.frequency.value=0.8+i*0.3; lg.gain.value=0.007;
+    lfo.connect(lg); lg.connect(g.gain); o.connect(g); g.connect(bgGain);
+    o.start(); lfo.start();
+  }
+  bgGain.gain.setTargetAtTime(0.3,audioCtx.currentTime,2);
+}
+function playStep(){
+  if(!soundOn||!audioCtx) return;
+  const o=audioCtx.createOscillator(),g=audioCtx.createGain();
+  o.type='sine'; o.frequency.value=180+Math.random()*60;
+  g.gain.setValueAtTime(0.07,audioCtx.currentTime);
+  g.gain.exponentialRampToValueAtTime(0.001,audioCtx.currentTime+0.1);
+  o.connect(g); g.connect(audioCtx.destination); o.start(); o.stop(audioCtx.currentTime+0.1);
+}
+function playApple(){
+  if(!soundOn||!audioCtx) return;
+  [523,659,784,1047].forEach((fr,i)=>{
+    const o=audioCtx.createOscillator(),g=audioCtx.createGain();
+    o.type='triangle'; o.frequency.value=fr;
+    g.gain.setValueAtTime(0.1,audioCtx.currentTime+i*0.07);
+    g.gain.exponentialRampToValueAtTime(0.001,audioCtx.currentTime+i*0.07+0.2);
+    o.connect(g); g.connect(audioCtx.destination);
+    o.start(audioCtx.currentTime+i*0.07); o.stop(audioCtx.currentTime+i*0.07+0.22);
+  });
+}
+function playWin(){
+  if(!soundOn||!audioCtx) return;
+  [523,587,659,698,784,880,988,1047].forEach((fr,i)=>{
+    const o=audioCtx.createOscillator(),g=audioCtx.createGain();
+    o.type='sine'; o.frequency.value=fr;
+    g.gain.setValueAtTime(0.12,audioCtx.currentTime+i*0.1);
+    g.gain.exponentialRampToValueAtTime(0.001,audioCtx.currentTime+i*0.1+0.35);
+    o.connect(g); g.connect(audioCtx.destination);
+    o.start(audioCtx.currentTime+i*0.1); o.stop(audioCtx.currentTime+i*0.1+0.38);
+  });
+}
+
+// ── 터치 / 키보드 이벤트 ──
+document.getElementById('bu').addEventListener('touchstart',e=>{e.preventDefault();mv(0,-1);},{passive:false});
+document.getElementById('bd').addEventListener('touchstart',e=>{e.preventDefault();mv(0,1);},{passive:false});
+document.getElementById('bl').addEventListener('touchstart',e=>{e.preventDefault();mv(-1,0);},{passive:false});
+document.getElementById('br').addEventListener('touchstart',e=>{e.preventDefault();mv(1,0);},{passive:false});
+document.getElementById('bu').addEventListener('click',()=>mv(0,-1));
+document.getElementById('bd').addEventListener('click',()=>mv(0,1));
+document.getElementById('bl').addEventListener('click',()=>mv(-1,0));
+document.getElementById('br').addEventListener('click',()=>mv(1,0));
+
+// 스와이프 제스처
+let tx0=0,ty0=0;
+document.getElementById('canvas-wrap').addEventListener('touchstart',e=>{tx0=e.touches[0].clientX;ty0=e.touches[0].clientY;},{passive:true});
+document.getElementById('canvas-wrap').addEventListener('touchend',e=>{
+  const dx=e.changedTouches[0].clientX-tx0,dy=e.changedTouches[0].clientY-ty0;
+  if(Math.abs(dx)<10&&Math.abs(dy)<10) return;
+  if(Math.abs(dx)>Math.abs(dy)) mv(dx>0?1:-1,0);
+  else mv(0,dy>0?1:-1);
+},{passive:true});
+
+document.addEventListener('keydown',e=>{
+  if(e.key==='ArrowUp'){e.preventDefault();mv(0,-1);}
+  if(e.key==='ArrowDown'){e.preventDefault();mv(0,1);}
+  if(e.key==='ArrowLeft'){e.preventDefault();mv(-1,0);}
+  if(e.key==='ArrowRight'){e.preventDefault();mv(1,0);}
+});
+
+window.addEventListener('resize',resize);
+
+// ── 시작 ──
+initThree();
+animate();
+</script>
+</body>
+</html>
